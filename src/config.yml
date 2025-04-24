@@ -1,0 +1,28 @@
+# Configuração do plugin MinhaLoja
+
+# Configurações gerais
+config:
+  # Mensagem de boas-vindas
+  mensagem-boas-vindas: "&aPlugin MinhaLoja ativado com sucesso!"
+
+  # Limite de lojas por jogador (0 = sem limite)
+  limite-lojas: 0
+
+  # Taxa para criar uma loja (0 = sem taxa)
+  taxa-criacao: 0
+
+  # Taxa de transação (porcentagem aplicada sobre o valor da venda)
+  # Exemplo: 5.0 = 5% de taxa
+  taxa-transacao: 0.0
+
+# Configurações de mensagens
+mensagens:
+  # Prefixo do plugin
+  prefixo: "&6[MinhaLoja] &r"
+
+  # Mensagens de erro
+  erro:
+    sem-permissao: "&cVocê não tem permissão para fazer isso!"
+    limite-lojas: "&cVocê atingiu o limite de lojas!"
+    sem-dinheiro-taxa: "&cVocê não tem dinheiro suficiente para pagar a taxa de criação!"
+    sem-dinheiro-compra: "&cVocê não tem dinheiro suficiente para comprar este item!"

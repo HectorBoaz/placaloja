@@ -1,0 +1,32 @@
+name: MinhaLoja
+version: 1.0
+main: net.byebye.lojaplacas.Main
+api-version: 1.21
+author: ByeBye
+description: Plugin de vendas de itens via placas
+
+commands:
+  minhaloja:
+    description: Comando principal do plugin MinhaLoja
+    usage: /minhaloja [ajuda|info]
+    aliases: [ml]
+    permission: minhaloja.usar
+  minhaloadmin:
+    description: Comando administrativo do plugin MinhaLoja
+    usage: /minhaloadmin [ajuda|list|reload|remove]
+    aliases: [mla]
+    permission: minhaloja.admin
+
+permissions:
+  minhaloja.usar:
+    description: Permite usar o comando /minhaloja
+    default: true
+  minhaloja.criar:
+    description: Permite criar lojas com placas
+    default: true
+  minhaloja.admin:
+    description: Permite acessar comandos administrativos
+    default: op
+    children:
+      minhaloja.usar: true
+      minhaloja.criar: true
