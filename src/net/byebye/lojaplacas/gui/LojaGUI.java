@@ -2,6 +2,7 @@ package net.byebye.lojaplacas.gui;
 
 import net.byebye.lojaplacas.LojaTemp;
 import net.byebye.lojaplacas.Main;
+import net.byebye.lojaplacas.ServidorLoja;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -17,6 +18,7 @@ import java.util.List;
 public class LojaGUI {
 
     public static final String TITULO_CONFIG = ChatColor.DARK_BLUE + "Configuração da Loja";
+    public static final String TITULO_CONFIG_SERVIDOR = ChatColor.DARK_RED + "Loja do SERVIDOR";
     public static final String TITULO_SELECAO_ITEM = ChatColor.DARK_GREEN + "Selecione o Item";
 
     public static final int SLOT_ITEM = 11;
@@ -27,11 +29,24 @@ public class LojaGUI {
     public static final int SLOT_CANCELAR = 32;
 
     public static void abrirConfiguracaoGUI(Player player) {
+        // Verificar se é modo desenvolvedor
+        Main plugin = Main.getInstance();
+        boolean isServidorLoja = plugin.isModoDesenvolvedor() && player.hasPermission("minhaloja.admin");
+
+        // Verificar se existe uma loja temporária para este jogador
+        LojaTemp lojaTemp = plugin.getLojaTemp(player.getUniqueId());
+        if (lojaTemp == null) {
+            plugin.getLogger().warning("[MinhaLoja] Tentativa de abrir GUI para jogador " + player.getName() + " mas não há loja temporária registrada.");
+            player.sendMessage(ChatColor.RED + "Erro ao abrir menu de configuração. Tente clicar na placa novamente.");
+            return;
+        }
+
+        plugin.getLogger().info("[MinhaLoja] Abrindo GUI para jogador " + player.getName() + (isServidorLoja ? " (MODO SERVIDOR)" : ""));
+
         // Título deve ter no máximo 32 caracteres devido a limitações do Bukkit
-        Inventory inv = Bukkit.createInventory(null, 45, TITULO_CONFIG);
+        Inventory inv = Bukkit.createInventory(null, 45, isServidorLoja ? TITULO_CONFIG_SERVIDOR : TITULO_CONFIG);
 
         // Obter loja temporária
-        LojaTemp lojaTemp = Main.getInstance().getLojaTemp(player.getUniqueId());
         if (lojaTemp == null) return;
 
         // Item para venda
@@ -154,6 +169,20 @@ public class LojaGUI {
         }
         inv.setItem(4, itemBau);
 
+        // Modo desenvolvedor - informação
+        if (isServidorLoja) {
+            ItemStack itemInfo = new ItemStack(Material.REDSTONE_TORCH);
+            ItemMeta metaInfo = itemInfo.getItemMeta();
+            metaInfo.setDisplayName(ChatColor.RED + "MODO DESENVOLVEDOR");
+            List<String> loreInfo = new ArrayList<>();
+            loreInfo.add(ChatColor.YELLOW + "Esta loja pertencerá ao SERVIDOR");
+            loreInfo.add(ChatColor.YELLOW + "Os jogadores poderão comprar/vender");
+            loreInfo.add(ChatColor.YELLOW + "sem que o dinheiro vá para ninguém");
+            metaInfo.setLore(loreInfo);
+            itemInfo.setItemMeta(metaInfo);
+            inv.setItem(49, itemInfo);
+        }
+
         // Botão confirmar
         ItemStack itemConfirmar = new ItemStack(Material.EMERALD_BLOCK);
         ItemMeta metaConfirmar = itemConfirmar.getItemMeta();
@@ -164,21 +193,28 @@ public class LojaGUI {
 
         // Verificar estoque para lojas de venda
         if (podeConfirmar && lojaTemp.getTipo() == LojaTemp.TipoLoja.VENDA) {
-            Chest chest = lojaTemp.getBau();
-            if (chest != null) {
-                int estoqueAtual = 0;
+            // No modo desenvolvedor, não é necessário verificar estoque
 
-                for (ItemStack item : chest.getInventory().getContents()) {
-                    if (item != null && item.isSimilar(lojaTemp.getItem())) {
-                        estoqueAtual += item.getAmount();
+            if (!isServidorLoja) {
+                Chest chest = lojaTemp.getBau();
+                if (chest != null) {
+                    int estoqueAtual = 0;
+
+                    for (ItemStack item : chest.getInventory().getContents()) {
+                        if (item != null && item.isSimilar(lojaTemp.getItem())) {
+                            estoqueAtual += item.getAmount();
+                        }
+                    }
+
+                    if (estoqueAtual < lojaTemp.getQuantidade()) {
+                        podeConfirmar = false;
+                        loreConfirmar.add(ChatColor.RED + "Estoque insuficiente no baú!");
+                        loreConfirmar.add(ChatColor.RED + "Disponível: " + estoqueAtual + "/" + lojaTemp.getQuantidade());
                     }
                 }
-
-                if (estoqueAtual < lojaTemp.getQuantidade()) {
-                    podeConfirmar = false;
-                    loreConfirmar.add(ChatColor.RED + "Estoque insuficiente no baú!");
-                    loreConfirmar.add(ChatColor.RED + "Disponível: " + estoqueAtual + "/" + lojaTemp.getQuantidade());
-                }
+            } else {
+                // Lojas do servidor são de estoque infinito
+                loreConfirmar.add(ChatColor.GREEN + "Modo SERVIDOR: Estoque infinito");
             }
         }
 
@@ -210,7 +246,9 @@ public class LojaGUI {
         inv.setItem(SLOT_CANCELAR, itemCancelar);
 
         // Decoração
-        ItemStack vidro = new ItemStack(Material.BLACK_STAINED_GLASS_PANE, 1);
+        ItemStack vidro = new ItemStack(
+                isServidorLoja ? Material.RED_STAINED_GLASS_PANE : Material.BLACK_STAINED_GLASS_PANE,
+                1);
         ItemMeta metaVidro = vidro.getItemMeta();
         metaVidro.setDisplayName(" ");
         vidro.setItemMeta(metaVidro);

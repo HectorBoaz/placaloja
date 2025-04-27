@@ -5,7 +5,7 @@ import net.byebye.balance.Economy;
 import net.byebye.lojaplacas.Loja;
 import net.byebye.lojaplacas.LojaTemp;
 import net.byebye.lojaplacas.Main;
-import net.byebye.lojaplacas.events.ChatListener;
+import net.byebye.lojaplacas.ServidorLoja;
 import net.byebye.lojaplacas.gui.LojaGUI;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -59,21 +59,55 @@ public class Events implements Listener {
                 return;
             }
 
+            // Verificar modo desenvolvedor (para lojas do servidor)
+            boolean isServidorLoja = plugin.isModoDesenvolvedor() && player.hasPermission("minhaloja.admin");
+
             // Configurar a placa
             event.setLine(0, ChatColor.DARK_BLUE + "[MinhaLoja]");
             event.setLine(1, ChatColor.GRAY + "Configurando...");
             event.setLine(2, "");
-            event.setLine(3, ChatColor.GRAY + player.getName());
+
+            if (isServidorLoja) {
+                event.setLine(3, ChatColor.RED + "SERVIDOR");
+                plugin.getLogger().info("[MinhaLoja] " + player.getName() + " está criando uma loja do SERVIDOR em modo desenvolvedor.");
+            } else {
+                event.setLine(3, ChatColor.GRAY + player.getName());
+            }
 
             // Adicionar loja temporária para configuração
             plugin.addLojaTemp(player.getUniqueId(), lojaTemp);
 
-            // Abrir GUI de configuração
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                LojaGUI.abrirConfiguracaoGUI(player);
-            }, 2L);
+            // Registrar o UUID do jogador no log para depuração
+            plugin.getLogger().info("[MinhaLoja] UUID do jogador registrado para loja temporária: " + player.getUniqueId());
 
-            player.sendMessage(ChatColor.GREEN + "Placa de loja criada! Configure sua loja.");
+            // Verificar se a loja temporária foi adicionada corretamente
+            if (plugin.getLojaTemp(player.getUniqueId()) != null) {
+                plugin.getLogger().info("[MinhaLoja] Loja temporária registrada com sucesso para o jogador " + player.getName());
+            } else {
+                plugin.getLogger().warning("[MinhaLoja] FALHA ao registrar loja temporária para o jogador " + player.getName());
+            }
+
+            // Abrir GUI de configuração após um pequeno delay (para garantir que a placa foi criada)
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                // Verificar novamente se a loja temporária ainda existe
+                if (plugin.getLojaTemp(player.getUniqueId()) != null) {
+                    plugin.getLogger().info("[MinhaLoja] Abrindo GUI de configuração para " + player.getName());
+                    LojaGUI.abrirConfiguracaoGUI(player);
+                } else {
+                    plugin.getLogger().warning("[MinhaLoja] Loja temporária não encontrada ao tentar abrir GUI para " + player.getName());
+                    // Criar loja temporária novamente se necessário
+                    plugin.addLojaTemp(player.getUniqueId(), lojaTemp);
+                    LojaGUI.abrirConfiguracaoGUI(player);
+                }
+            }, 10L); // Aumentei para 10 ticks para garantir que tudo seja processado
+
+            if (isServidorLoja) {
+                player.sendMessage(ChatColor.GREEN + "Placa de loja do SERVIDOR criada! Configure a loja.");
+                // Enviar mensagem de uso para ajudar o jogador
+                player.sendMessage(ChatColor.YELLOW + "Clique com o botão direito na placa para abrir o menu de configuração se não abrir automaticamente.");
+            } else {
+                player.sendMessage(ChatColor.GREEN + "Placa de loja criada! Configure sua loja.");
+            }
         }
     }
 
@@ -95,10 +129,35 @@ public class Events implements Listener {
 
         // Verificar se a loja está configurada ou não
         if (sign.getLine(1).equals(ChatColor.GRAY + "Configurando...")) {
+            // Se alguém está configurando a loja, verificar se é o jogador atual
             if (plugin.getLojasTemp().containsKey(player.getUniqueId())) {
+                // É o jogador atual, abrir interface de configuração
+                plugin.getLogger().info("[MinhaLoja] Jogador " + player.getName() + " está abrindo GUI para loja já registrada.");
                 LojaGUI.abrirConfiguracaoGUI(player);
             } else {
-                player.sendMessage(ChatColor.RED + "Esta loja ainda está sendo configurada.");
+                // É outro jogador, verificar se é modo desenvolvedor e jogador é admin
+                // Obter UUID do dono através da placa (linha 3)
+                String linha3 = sign.getLine(3);
+                boolean isServidorLoja = linha3.contains("SERVIDOR");
+
+                if (isServidorLoja && player.hasPermission("minhaloja.admin")) {
+                    // É admin e loja do servidor, pode configurar
+                    Location loc = sign.getLocation();
+                    LojaTemp lojaTemp = new LojaTemp(loc);
+                    plugin.getLogger().info("[MinhaLoja] Admin " + player.getName() + " está assumindo configuração de loja do SERVIDOR.");
+                    plugin.addLojaTemp(player.getUniqueId(), lojaTemp);
+
+                    // Abrir interface com delay para garantir registro
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        if (plugin.getLojaTemp(player.getUniqueId()) != null) {
+                            LojaGUI.abrirConfiguracaoGUI(player);
+                        } else {
+                            player.sendMessage(ChatColor.RED + "Erro ao registrar loja. Tente novamente.");
+                        }
+                    }, 2L);
+                } else {
+                    player.sendMessage(ChatColor.RED + "Esta loja ainda está sendo configurada por outro jogador.");
+                }
             }
             return;
         }
@@ -116,8 +175,9 @@ public class Events implements Listener {
             return;
         }
 
-        // Verificar se o jogador é o dono da loja
+        // Criar objeto Loja com base no tipo (normal ou servidor)
         UUID donoUUID = UUID.fromString(lojaSection.getString("dono"));
+        boolean isServidorLoja = donoUUID.equals(ServidorLoja.SERVIDOR_UUID);
 
         // Recuperar localização do baú
         String chestWorldName = lojaSection.getString("chestWorld");
@@ -126,26 +186,25 @@ public class Events implements Listener {
         double chestZ = lojaSection.getDouble("chestZ");
         Location chestLocation = new Location(Bukkit.getWorld(chestWorldName), chestX, chestY, chestZ);
 
-        if (player.getUniqueId().equals(donoUUID)) {
-            // O dono da loja pode configurá-la
-            LojaTemp lojaTemp = new LojaTemp(location);
-            lojaTemp.setItem((ItemStack) lojaSection.get("item"));
-            lojaTemp.setPreco(lojaSection.getDouble("preco"));
-            lojaTemp.setQuantidade(lojaSection.getInt("quantidade"));
-            lojaTemp.setTipo(LojaTemp.TipoLoja.valueOf(lojaSection.getString("tipo")));
-            lojaTemp.setChestLocation(chestLocation);
+        // Recuperar dados do item e loja
+        ItemStack item = (ItemStack) lojaSection.get("item");
+        int quantidade = lojaSection.getInt("quantidade");
+        double preco = lojaSection.getDouble("preco");
+        LojaTemp.TipoLoja tipo = LojaTemp.TipoLoja.valueOf(lojaSection.getString("tipo"));
 
-            plugin.addLojaTemp(player.getUniqueId(), lojaTemp);
-            LojaGUI.abrirConfiguracaoGUI(player);
+        Loja loja;
+
+        if (isServidorLoja) {
+            loja = new ServidorLoja(
+                    location,
+                    item,
+                    preco,
+                    quantidade,
+                    tipo,
+                    chestLocation
+            );
         } else {
-            // Outros jogadores interagem com a loja
-            ItemStack item = (ItemStack) lojaSection.get("item");
-            int quantidade = lojaSection.getInt("quantidade");
-            double preco = lojaSection.getDouble("preco");
-            LojaTemp.TipoLoja tipo = LojaTemp.TipoLoja.valueOf(lojaSection.getString("tipo"));
-
-            // Criar objeto Loja para facilitar verificações
-            Loja loja = new Loja(
+            loja = new Loja(
                     donoUUID,
                     location,
                     item,
@@ -154,7 +213,21 @@ public class Events implements Listener {
                     tipo,
                     chestLocation
             );
+        }
 
+        if (player.getUniqueId().equals(donoUUID) || (isServidorLoja && player.hasPermission("minhaloja.admin"))) {
+            // O dono da loja (ou admin para lojas do servidor) pode configurá-la
+            LojaTemp lojaTemp = new LojaTemp(location);
+            lojaTemp.setItem(item);
+            lojaTemp.setPreco(preco);
+            lojaTemp.setQuantidade(quantidade);
+            lojaTemp.setTipo(tipo);
+            lojaTemp.setChestLocation(chestLocation);
+
+            plugin.addLojaTemp(player.getUniqueId(), lojaTemp);
+            LojaGUI.abrirConfiguracaoGUI(player);
+        } else {
+            // Outros jogadores interagem com a loja
             if (tipo == LojaTemp.TipoLoja.VENDA) {
                 // Loja vende itens para o jogador
                 comprarDaLoja(player, loja);
@@ -165,28 +238,11 @@ public class Events implements Listener {
         }
     }
 
-    private void removerItensDoBau(Inventory inv, ItemStack item, int quantidade) {
-        int restante = quantidade;
-        for (int i = 0; i < inv.getSize(); i++) {
-            ItemStack slot = inv.getItem(i);
-            if (slot != null && slot.isSimilar(item)) {
-                int q = slot.getAmount();
-                if (q <= restante) {
-                    inv.setItem(i, null);
-                    restante -= q;
-                } else {
-                    slot.setAmount(q - restante);
-                    inv.setItem(i, slot);
-                    break;
-                }
-            }
-        }
-    }
+    public void comprarDaLoja(Player player, Loja loja) {
+        boolean isServidorLoja = ServidorLoja.isServidorLoja(loja);
 
-
-    private void comprarDaLoja(Player player, Loja loja) {
-        // Verificar se a loja tem estoque suficiente
-        if (!loja.temEstoque()) {
+        // Verificar se a loja tem estoque suficiente (sempre verdadeiro para lojas do servidor)
+        if (!isServidorLoja && !loja.temEstoque()) {
             player.sendMessage(ChatColor.RED + "Esta loja está sem estoque no momento.");
             return;
         }
@@ -211,15 +267,13 @@ public class Events implements Listener {
         // Remover dinheiro do jogador
         eco.removeSaldo(player, preco);
 
-        // Adicionar dinheiro ao dono da loja
+        // Verificar se é uma loja do servidor
         UUID donoUUID = loja.getDono();
-        Player dono = Bukkit.getPlayer(donoUUID);
-        if (dono != null && dono.isOnline()) {
-            eco.addSaldo(dono, preco);
-            dono.sendMessage(ChatColor.GREEN + player.getName() + " comprou " + quantidade + "x " +
-                    item.getType().name() + " por " + preco + " da sua loja.");
-        } else {
-            // Guardar pagamento offline
+
+        // Adicionar dinheiro ao dono da loja (se não for do servidor)
+        if (!isServidorLoja) {
+            // Sempre armazenar o pagamento no sistema de pagamentos offline
+            // Isso será processado quando o jogador entrar novamente
             Map<String, Object> pagamentoOffline = new HashMap<>();
             pagamentoOffline.put("valor", preco);
             pagamentoOffline.put("mensagem", player.getName() + " comprou " + quantidade + "x " +
@@ -228,21 +282,42 @@ public class Events implements Listener {
             plugin.getLojasConfig().set("pagamentos_offline." + donoUUID.toString() + "." +
                     System.currentTimeMillis(), pagamentoOffline);
             plugin.saveLojasConfig();
+
+            // Se o dono estiver online, notificar e dar o dinheiro imediatamente
+            Player dono = Bukkit.getPlayer(donoUUID);
+            if (dono != null && dono.isOnline()) {
+                eco.addSaldo(dono, preco);
+                dono.sendMessage(ChatColor.GREEN + player.getName() + " comprou " + quantidade + "x " +
+                        item.getType().name() + " por " + preco + " da sua loja.");
+            }
+        } else {
+            plugin.getLogger().info("[MinhaLoja] " + player.getName() + " comprou " + quantidade + "x " +
+                    item.getType().name() + " por " + preco + " da loja do SERVIDOR.");
         }
 
         // Dar os itens ao jogador
         player.getInventory().addItem(item);
-        removerItensDoBau(loja.getBau().getInventory(), item, quantidade);
 
-        player.sendMessage(ChatColor.GREEN + "Você comprou " + quantidade + "x " +
-                item.getType().name() + " por " + preco + ".");
+        // Remover itens do baú (não necessário para lojas do servidor)
+        if (!isServidorLoja) {
+            removerItensDoBau(loja.getBau().getInventory(), item, quantidade);
+        }
+
+        if (isServidorLoja) {
+            player.sendMessage(ChatColor.GREEN + "Você comprou " + quantidade + "x " +
+                    item.getType().name() + " por " + preco + " da loja do SERVIDOR.");
+        } else {
+            player.sendMessage(ChatColor.GREEN + "Você comprou " + quantidade + "x " +
+                    item.getType().name() + " por " + preco + ".");
+        }
     }
 
-    private void venderParaLoja(Player player, Loja loja) {
+    public void venderParaLoja(Player player, Loja loja) {
         ItemStack item = loja.getItem().clone();
         int quantidade = loja.getQuantidade();
         double preco = loja.getPreco();
         UUID donoUUID = loja.getDono();
+        boolean isServidorLoja = ServidorLoja.isServidorLoja(loja);
 
         // Verificar se o jogador tem os itens para vender
         if (!temItensParaVender(player, item, quantidade)) {
@@ -250,63 +325,125 @@ public class Events implements Listener {
             return;
         }
 
-        // Verificar se o baú da loja tem espaço para armazenar os itens
-        if (!loja.temEspacoNoEstoque()) {
+        // Verificar se o baú da loja tem espaço para armazenar os itens (sempre verdadeiro para lojas do servidor)
+        if (!isServidorLoja && !loja.temEspacoNoEstoque()) {
             player.sendMessage(ChatColor.RED + "Esta loja está com o estoque cheio no momento.");
             return;
         }
 
-        // Verificar se o dono da loja tem dinheiro suficiente
-        Player dono = Bukkit.getPlayer(donoUUID);
-        if (dono != null && dono.isOnline()) {
-            if (eco.getSaldo(dono) < preco) {
-                player.sendMessage(ChatColor.RED + "O dono da loja não tem dinheiro suficiente.");
-                return;
-            }
+        // Realizar a transação dependendo do tipo de loja
+        if (isServidorLoja) {
+            // Loja do servidor: não precisa verificar saldo, só registrar no log
+            plugin.getLogger().info("[MinhaLoja] " + player.getName() + " vendeu " + quantidade + "x " +
+                    item.getType().name() + " por " + preco + " para loja do SERVIDOR.");
 
-            // Remover dinheiro do dono
-            eco.removeSaldo(dono, preco);
-            dono.sendMessage(ChatColor.GREEN + player.getName() + " vendeu " + quantidade + "x " +
-                    item.getType().name() + " por " + preco + " para sua loja.");
+            // Dar dinheiro ao jogador diretamente
+            eco.addSaldo(player, preco);
         } else {
-            // Verificar saldo offline
-            String saldoOfflinePath = "saldos_offline." + donoUUID.toString();
-            double saldoOffline = plugin.getLojasConfig().getDouble(saldoOfflinePath, 0.0);
+            // Para transações com lojas offline, verificamos o saldo offline
+            boolean transacaoSucesso = false;
 
-            if (saldoOffline < preco) {
-                player.sendMessage(ChatColor.RED + "O dono da loja não tem dinheiro suficiente.");
-                return;
+            // Verificar se o dono está online
+            Player dono = Bukkit.getPlayer(donoUUID);
+
+            if (dono != null && dono.isOnline()) {
+                // Dono online - verificar saldo e completar transação imediatamente
+                if (eco.getSaldo(dono) < preco) {
+                    player.sendMessage(ChatColor.RED + "O dono da loja não tem dinheiro suficiente.");
+                    return;
+                }
+
+                // Remover dinheiro do dono
+                eco.removeSaldo(dono, preco);
+                dono.sendMessage(ChatColor.GREEN + player.getName() + " vendeu " + quantidade + "x " +
+                        item.getType().name() + " por " + preco + " para sua loja.");
+
+                transacaoSucesso = true;
+            } else {
+                // Dono offline - usar sistema de saldo offline
+                // 1. Verificar se há uma entrada de saldo offline para o dono
+                String saldoOfflinePath = "saldos_offline." + donoUUID.toString();
+                double saldoOffline = plugin.getLojasConfig().getDouble(saldoOfflinePath, -1);
+
+                // 2. Se não houver saldo offline registrado, criar um com um valor base alto
+                if (saldoOffline == -1) {
+                    // Criar um saldo offline inicial de 10000 (configurável)
+                    saldoOffline = 10000.0;
+                    plugin.getLojasConfig().set(saldoOfflinePath, saldoOffline);
+                    plugin.saveLojasConfig();
+                }
+
+                // 3. Verificar se o saldo offline é suficiente
+                if (saldoOffline < preco) {
+                    player.sendMessage(ChatColor.RED + "O dono da loja não tem dinheiro suficiente em seu saldo offline.");
+                    return;
+                }
+
+                // 4. Atualizar saldo offline
+                plugin.getLojasConfig().set(saldoOfflinePath, saldoOffline - preco);
+
+                // 5. Registrar compra para quando o dono ficar online
+                Map<String, Object> compraOffline = new HashMap<>();
+                compraOffline.put("item", item);
+                compraOffline.put("quantidade", quantidade);
+                compraOffline.put("mensagem", player.getName() + " vendeu " + quantidade + "x " +
+                        item.getType().name() + " por " + preco + " para sua loja.");
+
+                plugin.getLojasConfig().set("compras_offline." + donoUUID.toString() + "." +
+                        System.currentTimeMillis(), compraOffline);
+
+                plugin.saveLojasConfig();
+                transacaoSucesso = true;
             }
 
-            // Atualizar saldo offline
-            plugin.getLojasConfig().set(saldoOfflinePath, saldoOffline - preco);
+            // Se a transação for bem-sucedida, continuar com o processo
+            if (transacaoSucesso) {
+                // Remover itens do jogador
+                removerItensDoInventario(player, item, quantidade);
 
-            // Registrar compra
-            Map<String, Object> compraOffline = new HashMap<>();
-            compraOffline.put("item", item);
-            compraOffline.put("quantidade", quantidade);
-            compraOffline.put("mensagem", player.getName() + " vendeu " + quantidade + "x " +
-                    item.getType().name() + " por " + preco + " para sua loja.");
+                // Adicionar itens ao baú
+                item.setAmount(quantidade);
+                adicionarItensNoBau(loja.getBau().getInventory(), item, quantidade);
 
-            plugin.getLojasConfig().set("compras_offline." + donoUUID.toString() + "." +
-                    System.currentTimeMillis(), compraOffline);
+                // Dar dinheiro ao jogador
+                eco.addSaldo(player, preco);
 
-            plugin.saveLojasConfig();
+                player.sendMessage(ChatColor.GREEN + "Você vendeu " + quantidade + "x " +
+                        item.getType().name() + " por " + preco + ".");
+            }
+
+            return;
         }
 
+        // Código específico para lojas do servidor
         // Remover itens do jogador
         removerItensDoInventario(player, item, quantidade);
-
-        // Adicionar itens ao baú da loja
-        item.setAmount(quantidade);
-        adicionarItensNoBau(loja.getBau().getInventory(), item, quantidade);
 
         // Dar dinheiro ao jogador
         eco.addSaldo(player, preco);
 
         player.sendMessage(ChatColor.GREEN + "Você vendeu " + quantidade + "x " +
-                item.getType().name() + " por " + preco + ".");
+                item.getType().name() + " por " + preco + " para a loja do SERVIDOR.");
     }
+
+    private void removerItensDoBau(Inventory inv, ItemStack item, int quantidade) {
+        int restante = quantidade;
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack slot = inv.getItem(i);
+            if (slot != null && slot.isSimilar(item)) {
+                int q = slot.getAmount();
+                if (q <= restante) {
+                    inv.setItem(i, null);
+                    restante -= q;
+                } else {
+                    slot.setAmount(q - restante);
+                    inv.setItem(i, slot);
+                    break;
+                }
+            }
+        }
+    }
+
 
     private boolean adicionarItensNoBau(Inventory inv, ItemStack item, int quantidade) {
         int restante = quantidade;
@@ -419,6 +556,7 @@ public class Events implements Listener {
 
         // Cancelar qualquer clique em inventários personalizados
         if (titulo.equals(LojaGUI.TITULO_CONFIG) ||
+                titulo.equals(LojaGUI.TITULO_CONFIG_SERVIDOR) ||
                 titulo.equals(LojaGUI.TITULO_SELECAO_ITEM) ||
                 titulo.contains("Lojas - Página") ||
                 titulo.contains("Minhas Lojas - Página")) {
@@ -432,7 +570,7 @@ public class Events implements Listener {
             int slot = event.getRawSlot();
 
             // Processamento específico para cada tipo de inventário
-            if (titulo.equals(LojaGUI.TITULO_CONFIG)) {
+            if (titulo.equals(LojaGUI.TITULO_CONFIG) || titulo.equals(LojaGUI.TITULO_CONFIG_SERVIDOR)) {
                 if (slot == LojaGUI.SLOT_ITEM) {
                     // Selecionar item - abrir inventário de seleção
                     LojaGUI.abrirSelecaoItemGUI(player);
@@ -465,15 +603,19 @@ public class Events implements Listener {
                         }
 
                         if (lojaTemp.isConfigCompleta()) {
-                            // Verificar se o baú está vazio (para lojas de venda)
-                            if (lojaTemp.getTipo() == LojaTemp.TipoLoja.VENDA) {
+                            // Verificar se o baú está vazio (para lojas de venda) - não necessário para lojas do servidor
+                            boolean isServidorLoja = plugin.isModoDesenvolvedor() && player.hasPermission("minhaloja.admin");
+
+                            if (lojaTemp.getTipo() == LojaTemp.TipoLoja.VENDA && !isServidorLoja) {
                                 Chest chest = lojaTemp.getBau();
                                 if (chest != null) {
                                     ItemStack itemCheck = lojaTemp.getItem().clone();
                                     itemCheck.setAmount(lojaTemp.getQuantidade());
 
+                                    UUID donoUUID = player.getUniqueId();
+
                                     Loja lojaTemp2 = new Loja(
-                                            player.getUniqueId(),
+                                            donoUUID,
                                             lojaTemp.getPlacaLocation(),
                                             lojaTemp.getItem(),
                                             lojaTemp.getPreco(),
@@ -489,9 +631,13 @@ public class Events implements Listener {
                                 }
                             }
 
+                            // Verifica se é modo desenvolvedor
+                            boolean isServidorLoja2 = plugin.isModoDesenvolvedor() && player.hasPermission("minhaloja.admin");
+                            UUID donoUUID = isServidorLoja2 ? ServidorLoja.SERVIDOR_UUID : player.getUniqueId();
+
                             // Salvar loja
                             Loja loja = new Loja(
-                                    player.getUniqueId(),
+                                    donoUUID,
                                     lojaTemp.getPlacaLocation(),
                                     lojaTemp.getItem(),
                                     lojaTemp.getPreco(),
@@ -516,13 +662,24 @@ public class Events implements Listener {
                                 sign.setLine(0, ChatColor.DARK_BLUE + "[MinhaLoja]");
                                 sign.setLine(1, ChatColor.GREEN + tipoString);
                                 sign.setLine(2, ChatColor.GOLD + itemName);
-                                sign.setLine(3, ChatColor.GRAY + player.getName());
+
+                                // Mostrar preço em vez do nome do jogador
+                                sign.setLine(3, ChatColor.YELLOW + "$" + lojaTemp.getPreco());
+
                                 sign.update();
                             }
 
                             // Salvar dados da loja
                             ConfigurationSection section = plugin.getLojasConfig().createSection("lojas." + locKey);
-                            section.set("dono", player.getUniqueId().toString());
+
+                            // Verificar se é loja do servidor ou de jogador
+                            boolean isServidorLoja3 = plugin.isModoDesenvolvedor() && player.hasPermission("minhaloja.admin");
+                            if (isServidorLoja3) {
+                                section.set("dono", ServidorLoja.SERVIDOR_UUID.toString());
+                            } else {
+                                section.set("dono", player.getUniqueId().toString());
+                            }
+
                             section.set("item", lojaTemp.getItem());
                             section.set("preco", lojaTemp.getPreco());
                             section.set("quantidade", lojaTemp.getQuantidade());
@@ -541,7 +698,15 @@ public class Events implements Listener {
                             plugin.removeLojaTemp(player.getUniqueId());
 
                             player.closeInventory();
-                            player.sendMessage(ChatColor.GREEN + "Loja configurada com sucesso!");
+
+                            // Verificar se é loja do servidor ou de jogador
+                            boolean isServidorLoja4 = plugin.isModoDesenvolvedor() && player.hasPermission("minhaloja.admin");
+                            if (isServidorLoja4) {
+                                player.sendMessage(ChatColor.GREEN + "Loja do SERVIDOR configurada com sucesso!");
+                                plugin.getLogger().info("[MinhaLoja] " + player.getName() + " criou uma loja do SERVIDOR em " + locKey);
+                            } else {
+                                player.sendMessage(ChatColor.GREEN + "Loja configurada com sucesso!");
+                            }
                         } else {
                             player.sendMessage(ChatColor.RED + "Configure todos os aspectos da loja antes de confirmar!");
                         }
@@ -596,6 +761,7 @@ public class Events implements Listener {
 
         // Cancelar arrastar em inventários personalizados
         if (titulo.equals(LojaGUI.TITULO_CONFIG) ||
+                titulo.equals(LojaGUI.TITULO_CONFIG_SERVIDOR) ||
                 titulo.equals(LojaGUI.TITULO_SELECAO_ITEM) ||
                 titulo.contains("Lojas - Página") ||
                 titulo.contains("Minhas Lojas - Página")) {
@@ -651,7 +817,13 @@ public class Events implements Listener {
 
             // Verificar se o jogador é o dono da loja ou admin
             UUID donoUUID = UUID.fromString(lojaSection.getString("dono"));
-            if (!player.getUniqueId().equals(donoUUID) && !player.hasPermission("minhaloja.admin")) {
+            boolean isServidorLoja = donoUUID.equals(ServidorLoja.SERVIDOR_UUID);
+
+            if (isServidorLoja && !player.hasPermission("minhaloja.admin")) {
+                event.setCancelled(true);
+                player.sendMessage(ChatColor.RED + "Você não pode quebrar uma loja do SERVIDOR!");
+                return;
+            } else if (!isServidorLoja && !player.getUniqueId().equals(donoUUID) && !player.hasPermission("minhaloja.admin")) {
                 event.setCancelled(true);
                 player.sendMessage(ChatColor.RED + "Você não pode quebrar a loja de outro jogador!");
                 return;
@@ -681,8 +853,13 @@ public class Events implements Listener {
                     // Verificar se o jogador é o dono da loja ou admin
                     UUID donoUUID = UUID.fromString(lojaSection.getString("dono"));
                     Player player = event.getPlayer();
+                    boolean isServidorLoja = donoUUID.equals(ServidorLoja.SERVIDOR_UUID);
 
-                    if (!player.getUniqueId().equals(donoUUID) && !player.hasPermission("minhaloja.admin")) {
+                    if (isServidorLoja && !player.hasPermission("minhaloja.admin")) {
+                        event.setCancelled(true);
+                        player.sendMessage(ChatColor.RED + "Este baú pertence a uma loja do SERVIDOR! Você não pode quebrá-lo.");
+                        return;
+                    } else if (!isServidorLoja && !player.getUniqueId().equals(donoUUID) && !player.hasPermission("minhaloja.admin")) {
                         event.setCancelled(true);
                         player.sendMessage(ChatColor.RED + "Este baú pertence a uma loja! Você não pode quebrá-lo.");
                         return;
@@ -704,7 +881,12 @@ public class Events implements Listener {
                         placaLoc.getBlock().breakNaturally();
                     }
 
-                    player.sendMessage(ChatColor.GREEN + "Loja removida com sucesso!");
+                    if (isServidorLoja) {
+                        player.sendMessage(ChatColor.GREEN + "Loja do SERVIDOR removida com sucesso!");
+                        plugin.getLogger().info("[MinhaLoja] " + player.getName() + " removeu uma loja do SERVIDOR em " + locKey);
+                    } else {
+                        player.sendMessage(ChatColor.GREEN + "Loja removida com sucesso!");
+                    }
                     return;
                 }
             }

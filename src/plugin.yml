@@ -13,7 +13,7 @@ commands:
     permission: minhaloja.usar
   minhaloadmin:
     description: Comando administrativo do plugin MinhaLoja
-    usage: /minhaloadmin [ajuda|list|reload|remove]
+    usage: /minhaloadmin [ajuda|list|reload|remove|dev|servidor]
     aliases: [mla]
     permission: minhaloja.admin
 
@@ -30,3 +30,7 @@ permissions:
     children:
       minhaloja.usar: true
       minhaloja.criar: true
+      minhaloja.dev: true
+  minhaloja.dev:
+    description: Permite ativar o modo desenvolvedor e gerenciar lojas do servidor
+    default: op

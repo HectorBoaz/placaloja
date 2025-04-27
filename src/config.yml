@@ -15,6 +15,25 @@ config:
   # Exemplo: 5.0 = 5% de taxa
   taxa-transacao: 0.0
 
+  # Modo desenvolvedor (servidor como dono das lojas)
+  modo-desenvolvedor:
+    # Permitir que jogadores com permissão possam criar lojas como "SERVIDOR"
+    habilitar: false
+
+    # Nome para mostrar nas placas de loja do servidor
+    nome-servidor: "&4SERVIDOR"
+
+    # Log de transações em lojas do servidor
+    log-transacoes: true
+
+  # Configurações de transações offline
+  offline:
+    # Saldo padrão para jogadores offline (usado quando não há registro prévio)
+    saldo-padrao: 10000.0
+
+    # Tempo máximo (em dias) para manter os registros de transações offline
+    tempo-expiracao: 30
+
 # Configurações de mensagens
 mensagens:
   # Prefixo do plugin

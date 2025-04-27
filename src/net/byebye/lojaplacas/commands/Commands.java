@@ -1,5 +1,6 @@
 package net.byebye.lojaplacas.commands;
 
+import net.byebye.lojaplacas.Main;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 
 public class Commands implements CommandExecutor, TabCompleter {
 
+    private final Main plugin = Main.getInstance();
     private final List<String> subCommands = Arrays.asList("ajuda", "info");
 
     @Override
@@ -53,6 +55,13 @@ public class Commands implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.GRAY + "1. Coloque uma placa");
         player.sendMessage(ChatColor.GRAY + "2. Escreva \"minhaloja\" na primeira linha");
         player.sendMessage(ChatColor.GRAY + "3. Configure sua loja no menu que aparecer");
+
+        if (player.hasPermission("minhaloja.admin")) {
+            player.sendMessage(ChatColor.GOLD + "Comandos administrativos:");
+            player.sendMessage(ChatColor.YELLOW + "/minhaloadmin ajuda " + ChatColor.GRAY + "- Mostra ajuda para administradores");
+            player.sendMessage(ChatColor.YELLOW + "/minhaloadmin dev <on|off> " + ChatColor.GRAY + "- Ativa/desativa o modo desenvolvedor");
+            player.sendMessage(ChatColor.YELLOW + "/minhaloadmin servidor list " + ChatColor.GRAY + "- Lista lojas do servidor");
+        }
     }
 
     private void enviarInfo(Player player) {
@@ -60,6 +69,14 @@ public class Commands implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.GRAY + "Plugin que permite criar lojas de compra e venda de itens via placas");
         player.sendMessage(ChatColor.GRAY + "Versão: " + ChatColor.YELLOW + "1.0");
         player.sendMessage(ChatColor.GRAY + "Desenvolvido para: " + ChatColor.YELLOW + "Minecraft Java 1.21.4");
+
+        if (player.hasPermission("minhaloja.admin")) {
+            player.sendMessage(ChatColor.GRAY + "Status do modo desenvolvedor: " +
+                    (plugin.isModoDesenvolvedor() ? ChatColor.GREEN + "ATIVADO" : ChatColor.RED + "DESATIVADO"));
+            if (plugin.isModoDesenvolvedor()) {
+                player.sendMessage(ChatColor.YELLOW + "Você pode criar lojas como \"SERVIDOR\" para teste e desenvolvimento.");
+            }
+        }
     }
 
     @Override
